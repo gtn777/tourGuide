@@ -62,11 +62,10 @@ public class TestPerformance {
 		RewardsService rewardsService = new RewardsService(gpsUtil, new RewardCentral());
 		// Users should be incremented up to 100,000, and test finishes within 15
 		// minutes
-		InternalTestHelper.setInternalUserNumber(200);
+		InternalTestHelper.setInternalUserNumber(1000);
 		TourGuideService tourGuideService = new TourGuideService(gpsUtil, rewardsService);
 		List<User> allUsers = new ArrayList<>();
 		allUsers = tourGuideService.getAllUsers();
-
 		StopWatch stopWatch = new StopWatch();
 
 		stopWatch.start();
@@ -77,18 +76,19 @@ public class TestPerformance {
 		CompletableFuture<Void> allFuture = CompletableFuture
 				.allOf(completableFutures.toArray(new CompletableFuture[completableFutures.size()]));
 
-		CompletableFuture<List<VisitedLocation>> allLocationListFuture = allFuture.thenApply(future -> {
+		CompletableFuture<List<VisitedLocation>> locationListFuture = allFuture.thenApply(future -> {
 			return completableFutures.stream().map(completableFuture -> completableFuture.join())
 					.collect(Collectors.toList());
 		});
 
-		CompletableFuture<List<String>> allLocationStringListFuture = allLocationListFuture.thenApply(list -> {
+		CompletableFuture<List<String>> allLocationStringListFuture = locationListFuture.thenApply(list -> {
 			return list.stream().map((l) -> l.toString()).collect(Collectors.toList());
 		});
 
 		List<String> locationStringList = allLocationStringListFuture.join();
 
 		stopWatch.stop();
+		
 		tourGuideService.tracker.stopTracking();
 
 		System.out.println("highVolumeTrackLocation: Time Elapsed: "

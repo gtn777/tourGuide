@@ -1,10 +1,8 @@
 package tourGuide.service;
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 import org.springframework.stereotype.Service;
 
@@ -47,18 +45,22 @@ public class RewardsService {
 	public void calculateRewards(User user) {
 		List<VisitedLocation> userLocations = user.getVisitedLocations();
 		List<Attraction> attractions = gpsUtil.getAttractions();
-		
-		for(VisitedLocation visitedLocation : userLocations) {
-			for(Attraction attraction : attractions) {
-				if(user.getUserRewards().stream().filter(r -> r.attraction.attractionName.equals(attraction.attractionName)).count() == 0) {
-					if(nearAttraction(visitedLocation, attraction)) {
-						user.addUserReward(new UserReward(visitedLocation, attraction, getRewardPoints(attraction, user)));
+		List<UserReward> rewards = user.getUserRewards();
+
+		outLoop: for (Attraction attraction : attractions) {
+			for (VisitedLocation visitedLocation : userLocations) {
+				if (rewards.stream()
+						.filter(r -> r.attraction.attractionName.equals(attraction.attractionName))
+						.count() == 0) {
+					if (nearAttraction(visitedLocation, attraction)) {
+						rewards.add(new UserReward(visitedLocation, attraction,
+								getRewardPoints(attraction, user)));
+						continue outLoop;
 					}
 				}
 			}
 		}
 	}
-
 
 	public boolean isWithinAttractionProximity(Attraction attraction, Location location) {
 		return getDistance(attraction, location) > attractionProximityRange ? false : true;
@@ -86,17 +88,17 @@ public class RewardsService {
 		return statuteMiles;
 	}
 
-	CompletableFuture<Void> future = CompletableFuture.runAsync(new Runnable() {
-	    @Override
-	    public void run() {
-	        // Simulate a long-running Job
-	        try {
-	            TimeUnit.SECONDS.sleep(1);
-	        } catch (InterruptedException e) {
-	            throw new IllegalStateException(e);
-	        }
-	        System.out.println("I'll run in a separate thread than the main thread.");
-	    }
-	});
-	
+//	CompletableFuture<Void> future = CompletableFuture.runAsync(new Runnable() {
+//	    @Override
+//	    public void run() {
+//	        // Simulate a long-running Job
+//	        try {
+//	            TimeUnit.SECONDS.sleep(1);
+//	        } catch (InterruptedException e) {
+//	            throw new IllegalStateException(e);
+//	        }
+//	        System.out.println("I'll run in a separate thread than the main thread.");
+//	    }
+//	});
+
 }

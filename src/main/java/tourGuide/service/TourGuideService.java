@@ -9,6 +9,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -35,6 +38,7 @@ public class TourGuideService {
 	private final TripPricer tripPricer = new TripPricer();
 	public final Tracker tracker;
 	boolean testMode = true;
+	private final ExecutorService pool = Executors.newFixedThreadPool(20);
 
 	public TourGuideService(GpsUtil gpsUtil, RewardsService rewardsService) {
 		this.gpsUtil = gpsUtil;
@@ -56,7 +60,7 @@ public class TourGuideService {
 
 	public VisitedLocation getUserLocation(User user) {
 		VisitedLocation visitedLocation = (user.getVisitedLocations().size() > 0) ? user.getLastVisitedLocation()
-				: trackUserLocation(user);
+				: trackUserLocation(user).join();
 		return visitedLocation;
 	}
 
@@ -83,13 +87,34 @@ public class TourGuideService {
 		return providers;
 	}
 
-	public VisitedLocation trackUserLocation(User user) {
-		VisitedLocation visitedLocation = gpsUtil.getUserLocation(user.getUserId());
-		user.addToVisitedLocations(visitedLocation);
-		rewardsService.calculateRewards(user);
-		return visitedLocation;
+//-----------------------------------------------------------------------------------------------------
+
+	public CompletableFuture<VisitedLocation> trackUserLocation(User user) {
+		CompletableFuture<VisitedLocation> visitedLocationCompletableFuture = CompletableFuture
+				.supplyAsync(() -> gpsUtil.getUserLocation(user.getUserId()), pool)
+				.thenApplyAsync((loc) -> {
+					user.addToVisitedLocations(loc);
+					rewardsService.calculateRewards(user);
+					return loc;
+				});
+		return visitedLocationCompletableFuture;
 	}
 
+	public CompletableFuture<List<VisitedLocation>> trackAllUserLocation(List<User> users) {
+		List<CompletableFuture<VisitedLocation>> completableFutures = users.stream()
+				.map(user -> this.trackUserLocation(user))
+				.collect(Collectors.toList());
+		CompletableFuture<Void> allFuture = CompletableFuture
+				.allOf(completableFutures.toArray(new CompletableFuture[completableFutures.size()]));
+		CompletableFuture<List<VisitedLocation>> visitedLocationListFuture = allFuture.thenApply(future -> {
+			return completableFutures.stream()
+					.map(completableFuture -> completableFuture.join())
+					.collect(Collectors.toList());
+		});
+		return visitedLocationListFuture;
+	}
+
+//--------------------------------------------------------------------------------------------------
 	public List<Attraction> getNearByAttractions(VisitedLocation visitedLocation) {
 		List<Attraction> nearbyAttractions = new ArrayList<>();
 		for (Attraction attraction : gpsUtil.getAttractions()) {
@@ -97,7 +122,6 @@ public class TourGuideService {
 				nearbyAttractions.add(attraction);
 			}
 		}
-
 		return nearbyAttractions;
 	}
 

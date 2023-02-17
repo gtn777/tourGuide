@@ -1,9 +1,13 @@
 package tourGuide.service;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import org.apache.commons.lang3.time.StopWatch;
 import org.springframework.stereotype.Service;
 
 import gpsUtil.GpsUtil;
@@ -25,6 +29,8 @@ public class RewardsService {
 	private final GpsUtil gpsUtil;
 	private final RewardCentral rewardsCentral;
 
+	private final ExecutorService pool = Executors.newFixedThreadPool(50);
+
 	public RewardsService(GpsUtil gpsUtil, RewardCentral rewardCentral) {
 		this.gpsUtil = gpsUtil;
 		this.rewardsCentral = rewardCentral;
@@ -38,28 +44,47 @@ public class RewardsService {
 		proximityBuffer = defaultProximityBuffer;
 	}
 
-	private final ExecutorService pool = Executors.newFixedThreadPool(20);
-
-	int count = 0;
-
-	public void calculateRewards(User user) {
+	public List<CompletableFuture<Void>> calculateRewards(User user) {
 		List<VisitedLocation> userLocations = user.getVisitedLocations();
 		List<Attraction> attractions = gpsUtil.getAttractions();
-		List<UserReward> rewards = user.getUserRewards();
 
-		outLoop: for (Attraction attraction : attractions) {
+		List<CompletableFuture<Void>> futures = new ArrayList<>();
+		for (Attraction attraction : attractions) {
 			for (VisitedLocation visitedLocation : userLocations) {
-				if (rewards.stream()
-						.filter(r -> r.attraction.attractionName.equals(attraction.attractionName))
-						.count() == 0) {
-					if (nearAttraction(visitedLocation, attraction)) {
-						rewards.add(new UserReward(visitedLocation, attraction,
-								getRewardPoints(attraction, user)));
-						continue outLoop;
-					}
+				if (user.getUserRewards()
+						.stream()
+						.anyMatch(t -> t.attraction.attractionName == attraction.attractionName)) {
+					break;
+				} else if (nearAttraction(visitedLocation, attraction)) {
+					CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+						user.getUserRewards()
+								.add(new UserReward(visitedLocation, attraction, getRewardPoints(attraction, user)));
+					}, pool);
+					futures.add(future);
+					break;
+				} else {
+					continue;
 				}
 			}
 		}
+		return futures;
+	}
+
+	private int getRewardPointsCount = 0;
+	private List<Double> durations = new ArrayList<>();
+
+	public Double getDurationsAverage() {
+		return durations.stream().mapToDouble(d -> d).average().orElse(0);
+	}
+
+	private Integer getRewardPoints(Attraction attraction, User user) {
+		StopWatch watch = new StopWatch();
+		watch.start();
+		int points = rewardsCentral.getAttractionRewardPoints(attraction.attractionId, user.getUserId());
+		watch.stop();
+		this.incrementGetRewardPointsCount();
+		durations.add((double) watch.getTime() / 1000);
+		return points;
 	}
 
 	public boolean isWithinAttractionProximity(Attraction attraction, Location location) {
@@ -70,35 +95,32 @@ public class RewardsService {
 		return getDistance(attraction, visitedLocation.location) > proximityBuffer ? false : true;
 	}
 
-	private int getRewardPoints(Attraction attraction, User user) {
-		return rewardsCentral.getAttractionRewardPoints(attraction.attractionId, user.getUserId());
-	}
-
 	public double getDistance(Location loc1, Location loc2) {
 		double lat1 = Math.toRadians(loc1.latitude);
 		double lon1 = Math.toRadians(loc1.longitude);
 		double lat2 = Math.toRadians(loc2.latitude);
 		double lon2 = Math.toRadians(loc2.longitude);
 
-		double angle = Math.acos(
-				Math.sin(lat1) * Math.sin(lat2) + Math.cos(lat1) * Math.cos(lat2) * Math.cos(lon1 - lon2));
+		double angle = Math
+				.acos(Math.sin(lat1) * Math.sin(lat2) + Math.cos(lat1) * Math.cos(lat2) * Math.cos(lon1 - lon2));
 
 		double nauticalMiles = 60 * Math.toDegrees(angle);
 		double statuteMiles = STATUTE_MILES_PER_NAUTICAL_MILE * nauticalMiles;
 		return statuteMiles;
 	}
 
-//	CompletableFuture<Void> future = CompletableFuture.runAsync(new Runnable() {
-//	    @Override
-//	    public void run() {
-//	        // Simulate a long-running Job
-//	        try {
-//	            TimeUnit.SECONDS.sleep(1);
-//	        } catch (InterruptedException e) {
-//	            throw new IllegalStateException(e);
-//	        }
-//	        System.out.println("I'll run in a separate thread than the main thread.");
-//	    }
-//	});
+	public Executor getPool() {
+		return this.pool;
+	}
 
+	public int getGetRewardPointsCount() {
+		return getRewardPointsCount;
+	}
+
+	private void setGetRewardPointsCount(int getRewardPointsCount) {
+		this.getRewardPointsCount = getRewardPointsCount;
+	}
+	private void incrementGetRewardPointsCount() {
+		this.setGetRewardPointsCount(this.getRewardPointsCount+1);
+	}
 }

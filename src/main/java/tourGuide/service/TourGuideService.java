@@ -15,6 +15,7 @@ import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import org.apache.commons.lang3.time.StopWatch;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -38,7 +39,7 @@ public class TourGuideService {
 	private final TripPricer tripPricer = new TripPricer();
 	public final Tracker tracker;
 	boolean testMode = true;
-	private final ExecutorService pool = Executors.newFixedThreadPool(20);
+	private final ExecutorService pool = Executors.newFixedThreadPool(50);
 
 	public TourGuideService(GpsUtil gpsUtil, RewardsService rewardsService) {
 		this.gpsUtil = gpsUtil;
@@ -88,15 +89,43 @@ public class TourGuideService {
 	}
 
 //-----------------------------------------------------------------------------------------------------
+	private int gpsUtilLongCount;
+
+	public int getGpsUtilLongCount() {
+		return gpsUtilLongCount;
+	}
+
+	public void setGpsUtilLongCount(int gpsUtilLongCount) {
+		this.gpsUtilLongCount = gpsUtilLongCount;
+	}
+
+	private void incrementeGpsUtilLongCount() {
+		this.setGpsUtilLongCount(this.gpsUtilLongCount + 1);
+
+	}
+
+	private List<Double> durations = new ArrayList<>();
+
+	public Double getDurationsAverage() {
+		return durations.stream().mapToDouble(d -> d).average().orElse(0);
+	}
 
 	public CompletableFuture<VisitedLocation> trackUserLocation(User user) {
-		CompletableFuture<VisitedLocation> visitedLocationCompletableFuture = CompletableFuture
-				.supplyAsync(() -> gpsUtil.getUserLocation(user.getUserId()), pool)
-				.thenApplyAsync((loc) -> {
-					user.addToVisitedLocations(loc);
-					rewardsService.calculateRewards(user);
-					return loc;
-				});
+		CompletableFuture<VisitedLocation> visitedLocationCompletableFuture = CompletableFuture.supplyAsync(() -> {
+			StopWatch watch = new StopWatch();
+			watch.start();
+			VisitedLocation loc = gpsUtil.getUserLocation(user.getUserId());
+			watch.stop();
+			this.incrementeGpsUtilLongCount();
+			durations.add((double) watch.getTime() / 1000);
+			return loc;
+		}, pool).thenApplyAsync((loc) -> {
+			user.addToVisitedLocations(loc);
+			CompletableFuture<?> future = CompletableFuture
+					.allOf(rewardsService.calculateRewards(user).toArray(new CompletableFuture[0]));
+			future.join();
+			return loc;
+		}, rewardsService.getPool());
 		return visitedLocationCompletableFuture;
 	}
 
@@ -104,8 +133,10 @@ public class TourGuideService {
 		List<CompletableFuture<VisitedLocation>> completableFutures = users.stream()
 				.map(user -> this.trackUserLocation(user))
 				.collect(Collectors.toList());
+
 		CompletableFuture<Void> allFuture = CompletableFuture
 				.allOf(completableFutures.toArray(new CompletableFuture[completableFutures.size()]));
+
 		CompletableFuture<List<VisitedLocation>> visitedLocationListFuture = allFuture.thenApply(future -> {
 			return completableFutures.stream()
 					.map(completableFuture -> completableFuture.join())

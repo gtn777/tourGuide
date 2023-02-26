@@ -6,10 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 import org.apache.commons.lang3.time.StopWatch;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import gpsUtil.GpsUtil;
@@ -64,19 +62,14 @@ public class TestRewardsService {
 		StopWatch stopWatch = new StopWatch();
 
 		stopWatch.start();
-		CompletableFuture
-				.allOf(rewardsService
-						.calculateRewards(tourGuideService.getAllUsers().get(0))
-						.toArray(new CompletableFuture[0]))
-				.join();
+		rewardsService.calculateRewards(tourGuideService.getAllUsers().get(0)).join();
 		stopWatch.stop();
-		
+
 		List<UserReward> userRewards = tourGuideService.getUserRewards(tourGuideService.getAllUsers().get(0));
 		assertEquals(gpsUtil.getAttractions().size(), userRewards.size());
 
-		System.out
-				.println("------ calculateRewards 1 user, 26 attractions: "
-						+ ((double) stopWatch.getTime() / 1000) + "sec");
+		System.out.println(
+				"------ calculateRewards 1 user, 26 attractions: " + ((double) stopWatch.getTime() / 1000) + "sec");
 	}
 
 }

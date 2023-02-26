@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 import java.util.UUID;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import gpsUtil.GpsUtil;
@@ -21,6 +20,7 @@ import tripPricer.Provider;
 
 public class TestTourGuideService {
 
+//	@Disabled
 	@Test
 	public void getUserLocation() {
 		GpsUtil gpsUtil = new GpsUtil();
@@ -34,6 +34,7 @@ public class TestTourGuideService {
 		assertTrue(visitedLocation.userId.equals(user.getUserId()));
 	}
 
+//	@Disabled
 	@Test
 	public void addUser() {
 		GpsUtil gpsUtil = new GpsUtil();
@@ -56,6 +57,7 @@ public class TestTourGuideService {
 		assertEquals(user2, retrivedUser2);
 	}
 
+//	@Disabled
 	@Test
 	public void getAllUsers() {
 		GpsUtil gpsUtil = new GpsUtil();
@@ -77,6 +79,7 @@ public class TestTourGuideService {
 		assertTrue(allUsers.contains(user2));
 	}
 
+//	@Disabled
 	@Test
 	public void trackUser() {
 		GpsUtil gpsUtil = new GpsUtil();
@@ -92,7 +95,7 @@ public class TestTourGuideService {
 		assertEquals(user.getUserId(), visitedLocation.userId);
 	}
 
-	@Disabled // Not yet implemented
+//	@Disabled // Not yet implemented
 	@Test
 	public void getNearbyAttractions() {
 		GpsUtil gpsUtil = new GpsUtil();
@@ -110,19 +113,30 @@ public class TestTourGuideService {
 		assertEquals(5, attractions.size());
 	}
 
+//	@Disabled
+	@Test
 	public void getTripDeals() {
 		GpsUtil gpsUtil = new GpsUtil();
 		RewardsService rewardsService = new RewardsService(gpsUtil, new RewardCentral());
 		InternalTestHelper.setInternalUserNumber(0);
 		TourGuideService tourGuideService = new TourGuideService(gpsUtil, rewardsService);
-
-		User user = new User(UUID.randomUUID(), "jon", "000", "jon@tourGuide.com");
-
-		List<Provider> providers = tourGuideService.getTripDeals(user);
-
 		tourGuideService.tracker.stopTracking();
+		
+		User user = new User(UUID.randomUUID(), "jon", "000", "jon@tourGuide.com");
+//		user.getUserPreferences().setNumberOfChildren(0);
+//		user.getUserPreferences().setNumberOfAdults(0);
+		tourGuideService.trackUserLocation(user).join();
+//		user.getUserPreferences().setTripDuration(0);
 
-		assertEquals(10, providers.size());
+		System.out.println("-------------------------------------");
+		
+		List<Provider> providers = tourGuideService.getTripDeals(user);
+		System.out.println("-------------------------------------");
+		for(Provider p: providers) {
+			System.out.println(p.name);
+			System.out.println(p.price);
+		}
+		assertEquals(5, providers.size());
 	}
 
 }

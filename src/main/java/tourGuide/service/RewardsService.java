@@ -25,11 +25,11 @@ public class RewardsService {
 	// proximity in miles
 	private int defaultProximityBuffer = 10;
 	private int proximityBuffer = defaultProximityBuffer;
-	private int attractionProximityRange = 200;
+	private int attractionProximityRange = 300;
 	private final GpsUtil gpsUtil;
 	private final RewardCentral rewardsCentral;
 
-	private final ExecutorService pool = Executors.newFixedThreadPool(50);
+	private final ExecutorService pool = Executors.newFixedThreadPool(1000);
 
 	public RewardsService(GpsUtil gpsUtil, RewardCentral rewardCentral) {
 		this.gpsUtil = gpsUtil;
@@ -44,16 +44,15 @@ public class RewardsService {
 		proximityBuffer = defaultProximityBuffer;
 	}
 
-	public List<CompletableFuture<Void>> calculateRewards(User user) {
+	public CompletableFuture<Void> calculateRewards(User user) {
 		List<VisitedLocation> userLocations = user.getVisitedLocations();
 		List<Attraction> attractions = gpsUtil.getAttractions();
+		List<UserReward> userRewards = new ArrayList<>(user.getUserRewards());
 
 		List<CompletableFuture<Void>> futures = new ArrayList<>();
 		for (Attraction attraction : attractions) {
 			for (VisitedLocation visitedLocation : userLocations) {
-				if (user.getUserRewards()
-						.stream()
-						.anyMatch(t -> t.attraction.attractionName == attraction.attractionName)) {
+				if (userRewards.stream().anyMatch(t -> t.attraction.attractionName == attraction.attractionName)) {
 					break;
 				} else if (nearAttraction(visitedLocation, attraction)) {
 					CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
@@ -67,17 +66,10 @@ public class RewardsService {
 				}
 			}
 		}
-		return futures;
+		return CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()]));
 	}
 
-	private int getRewardPointsCount = 0;
-	private List<Double> durations = new ArrayList<>();
-
-	public Double getDurationsAverage() {
-		return durations.stream().mapToDouble(d -> d).average().orElse(0);
-	}
-
-	private Integer getRewardPoints(Attraction attraction, User user) {
+	protected Integer getRewardPoints(Attraction attraction, User user) {
 		StopWatch watch = new StopWatch();
 		watch.start();
 		int points = rewardsCentral.getAttractionRewardPoints(attraction.attractionId, user.getUserId());
@@ -113,6 +105,13 @@ public class RewardsService {
 		return this.pool;
 	}
 
+	private int getRewardPointsCount = 0;
+	private List<Double> durations = new ArrayList<>();
+
+	public Double getDurationsAverage() {
+		return durations.stream().mapToDouble(d -> d).average().orElse(0);
+	}
+
 	public int getGetRewardPointsCount() {
 		return getRewardPointsCount;
 	}
@@ -120,7 +119,8 @@ public class RewardsService {
 	private void setGetRewardPointsCount(int getRewardPointsCount) {
 		this.getRewardPointsCount = getRewardPointsCount;
 	}
+
 	private void incrementGetRewardPointsCount() {
-		this.setGetRewardPointsCount(this.getRewardPointsCount+1);
+		this.setGetRewardPointsCount(this.getRewardPointsCount + 1);
 	}
 }

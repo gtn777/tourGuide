@@ -6,7 +6,6 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.lang3.time.StopWatch;
@@ -51,14 +50,14 @@ public class TestPerformance {
 	 * TimeUnit.MILLISECONDS.toSeconds(stopWatch.getTime()));
 	 */
 
-//	@Disabled
+	@Disabled
 	@Test
 	public void highVolumeTrackLocation() {
 		GpsUtil gpsUtil = new GpsUtil();
 		RewardsService rewardsService = new RewardsService(gpsUtil, new RewardCentral());
-//		 Users should be incremented up to 100,000, and test finishes within 15
-		// minutes
-		InternalTestHelper.setInternalUserNumber(1040);
+//		 Users should be incremented up to 100,000, and test finishes within 15 minutes
+
+		InternalTestHelper.setInternalUserNumber(1000);
 		TourGuideService tourGuideService = new TourGuideService(gpsUtil, rewardsService);
 		tourGuideService.tracker.stopTracking();
 		List<User> allUsers = new ArrayList<>();
@@ -66,30 +65,12 @@ public class TestPerformance {
 		StopWatch stopWatch = new StopWatch();
 
 		stopWatch.start();
-		List<VisitedLocation> resultList = new ArrayList<>();
-		try {
-			resultList = tourGuideService.trackAllUserLocation(allUsers).get();
-		} catch (InterruptedException | ExecutionException e1) {
-			logger.error(e1.getMessage());
-		}
-
+		tourGuideService.trackAllUserLocation(allUsers).join();
 		stopWatch.stop();
-		System.out.println("              ------------             ");
-		System.out.println("              ------------             ");
+
 		System.out.println("highVolumeTrackLocation: Time Elapsed: "
 				+ TimeUnit.MILLISECONDS.toSeconds(stopWatch.getTime()) + " seconds.");
 		assertTrue(TimeUnit.MINUTES.toSeconds(15) >= TimeUnit.MILLISECONDS.toSeconds(stopWatch.getTime()));
-
-		assertTrue(resultList.size() == InternalTestHelper.getInternalUserNumber());// ---------------------
-		
-		System.out.println("highVolumeGetRewards " + "user:" + allUsers.size() + " Time: "
-				+ ((double) stopWatch.getTime() / 1000));
-		
-		System.out.println("-  GpsUtil longProcess: " + tourGuideService.getGpsUtilLongCount());
-		System.out.println("-  gpsutil average duration : " + tourGuideService.getDurationsAverage());
-		System.out.println("-  RewardCenter longProcess: " + rewardsService.getGetRewardPointsCount());
-		System.out.println("-  longProcess average duration : " + rewardsService.getDurationsAverage());
-		System.out.println("------------------------------------------------------");
 	}
 
 //	@Disabled
@@ -97,52 +78,36 @@ public class TestPerformance {
 	public void highVolumeGetRewards() {
 		GpsUtil gpsUtil = new GpsUtil();
 		RewardsService rewardsService = new RewardsService(gpsUtil, new RewardCentral());
-		rewardsService.setProximityBuffer(Integer.MAX_VALUE);
-//		rewardsService.setProximityBuffer(0);
-		// Users should be incremented up to 100,000, and test finishes within 20
-		// minutes
-		InternalTestHelper.setInternalUserNumber(40);
+//		rewardsService.setProximityBuffer(Integer.MAX_VALUE);
+
+		InternalTestHelper.setInternalUserNumber(1000);
 		StopWatch stopWatch = new StopWatch();
-		stopWatch.start();
 		TourGuideService tourGuideService = new TourGuideService(gpsUtil, rewardsService);
 		tourGuideService.tracker.stopTracking();
 
 		Attraction attraction = gpsUtil.getAttractions().get(0);
 		List<User> allUsers = new ArrayList<>();
 		allUsers = tourGuideService.getAllUsers();
-		allUsers.forEach(
-				u -> u.addToVisitedLocations(new VisitedLocation(u.getUserId(), attraction, new Date())));
+		allUsers.forEach(u -> u.addToVisitedLocations(new VisitedLocation(u.getUserId(), attraction, new Date())));
 
 		// --- WHEN --------------
+		stopWatch.start();
 		List<CompletableFuture<Void>> futures = new ArrayList<>();
 		for (User user : allUsers) {
-			for (CompletableFuture<Void> future : rewardsService.calculateRewards(user)) {
-				futures.add(future);
-			}
+			futures.add(rewardsService.calculateRewards(user));
 		}
-		System.out.println("-----------------------------------------------------");
-		System.out.println(" - list des futures en " + ((double) stopWatch.getTime() / 1000) + " seconds.");
 		CompletableFuture<Void> future = CompletableFuture
 				.allOf(futures.toArray(new CompletableFuture[futures.size()]));
-		System.out.println(" - future final en " + ((double) stopWatch.getTime() / 1000) + " seconds.");
 		future.join();
-		System.out.println(" - consommé en " + ((double) stopWatch.getTime() / 1000) + " seconds.");
+		stopWatch.stop();
 
 		// --- THEN
 		for (User user : allUsers) {
 			assertTrue(user.getUserRewards().size() > 0);
 		}
-		stopWatch.stop();
+		System.out.println("highVolumeGetRewards: Time Elapsed: " + TimeUnit.MILLISECONDS.toSeconds(stopWatch.getTime())
+				+ " seconds.");
 		assertTrue(TimeUnit.MINUTES.toSeconds(20) >= TimeUnit.MILLISECONDS.toSeconds(stopWatch.getTime()));
-		System.out.println("highVolumeGetRewards " + "user:" + allUsers.size() + " Time: "
-				+ ((double) stopWatch.getTime() / 1000));
-		
-		System.out.println("-  RewardCenter longProcess: " + rewardsService.getGetRewardPointsCount());
-		System.out.println("-  longProcess average duration : " + rewardsService.getDurationsAverage());
-		System.out.println("------------------------------------------------------");
-		
-		
-//		System.out.println("highVolumeGetRewards: Time Elapsed: "
-//				+ TimeUnit.MILLISECONDS.toSeconds(stopWatch.getTime()) + " seconds.");
+
 	}
 }

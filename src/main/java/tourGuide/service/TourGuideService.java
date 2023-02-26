@@ -3,6 +3,7 @@ package tourGuide.service;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -15,7 +16,6 @@ import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import org.apache.commons.lang3.time.StopWatch;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -24,6 +24,9 @@ import gpsUtil.GpsUtil;
 import gpsUtil.location.Attraction;
 import gpsUtil.location.Location;
 import gpsUtil.location.VisitedLocation;
+import tourGuide.dto.GetNearbyAttractionsDto;
+import tourGuide.dto.LocationDto;
+import tourGuide.dto.NearbyAttractionDto;
 import tourGuide.helper.InternalTestHelper;
 import tourGuide.tracker.Tracker;
 import tourGuide.user.User;
@@ -39,7 +42,7 @@ public class TourGuideService {
 	private final TripPricer tripPricer = new TripPricer();
 	public final Tracker tracker;
 	boolean testMode = true;
-	private final ExecutorService pool = Executors.newFixedThreadPool(50);
+	private final ExecutorService pool = Executors.newFixedThreadPool(30);
 
 	public TourGuideService(GpsUtil gpsUtil, RewardsService rewardsService) {
 		this.gpsUtil = gpsUtil;
@@ -79,8 +82,13 @@ public class TourGuideService {
 		}
 	}
 
+	private void updateRewards(User user) {
+		this.rewardsService.calculateRewards(user).join();
+	}
+
 	public List<Provider> getTripDeals(User user) {
 		int cumulatativeRewardPoints = user.getUserRewards().stream().mapToInt(i -> i.getRewardPoints()).sum();
+
 		List<Provider> providers = tripPricer.getPrice(tripPricerApiKey, user.getUserId(),
 				user.getUserPreferences().getNumberOfAdults(), user.getUserPreferences().getNumberOfChildren(),
 				user.getUserPreferences().getTripDuration(), cumulatativeRewardPoints);
@@ -88,72 +96,76 @@ public class TourGuideService {
 		return providers;
 	}
 
-//-----------------------------------------------------------------------------------------------------
-	private int gpsUtilLongCount;
-
-	public int getGpsUtilLongCount() {
-		return gpsUtilLongCount;
-	}
-
-	public void setGpsUtilLongCount(int gpsUtilLongCount) {
-		this.gpsUtilLongCount = gpsUtilLongCount;
-	}
-
-	private void incrementeGpsUtilLongCount() {
-		this.setGpsUtilLongCount(this.gpsUtilLongCount + 1);
-
-	}
-
-	private List<Double> durations = new ArrayList<>();
-
-	public Double getDurationsAverage() {
-		return durations.stream().mapToDouble(d -> d).average().orElse(0);
-	}
-
 	public CompletableFuture<VisitedLocation> trackUserLocation(User user) {
 		CompletableFuture<VisitedLocation> visitedLocationCompletableFuture = CompletableFuture.supplyAsync(() -> {
-			StopWatch watch = new StopWatch();
-			watch.start();
 			VisitedLocation loc = gpsUtil.getUserLocation(user.getUserId());
-			watch.stop();
-			this.incrementeGpsUtilLongCount();
-			durations.add((double) watch.getTime() / 1000);
 			return loc;
 		}, pool).thenApplyAsync((loc) -> {
 			user.addToVisitedLocations(loc);
-			CompletableFuture<?> future = CompletableFuture
-					.allOf(rewardsService.calculateRewards(user).toArray(new CompletableFuture[0]));
-			future.join();
+			rewardsService.calculateRewards(user).join();
 			return loc;
 		}, rewardsService.getPool());
 		return visitedLocationCompletableFuture;
 	}
 
-	public CompletableFuture<List<VisitedLocation>> trackAllUserLocation(List<User> users) {
+	public CompletableFuture<Void> trackAllUserLocation(List<User> users) {
 		List<CompletableFuture<VisitedLocation>> completableFutures = users.stream()
 				.map(user -> this.trackUserLocation(user))
 				.collect(Collectors.toList());
-
-		CompletableFuture<Void> allFuture = CompletableFuture
-				.allOf(completableFutures.toArray(new CompletableFuture[completableFutures.size()]));
-
-		CompletableFuture<List<VisitedLocation>> visitedLocationListFuture = allFuture.thenApply(future -> {
-			return completableFutures.stream()
-					.map(completableFuture -> completableFuture.join())
-					.collect(Collectors.toList());
-		});
-		return visitedLocationListFuture;
+		return CompletableFuture.allOf(completableFutures.toArray(new CompletableFuture[completableFutures.size()]));
 	}
 
-//--------------------------------------------------------------------------------------------------
 	public List<Attraction> getNearByAttractions(VisitedLocation visitedLocation) {
+		List<Attraction> allAttractions = new ArrayList<>(gpsUtil.getAttractions());
+		List<Double> allDistances = new ArrayList<>(allAttractions.stream()
+				.map(a -> rewardsService.getDistance(a, visitedLocation.location))
+				.collect(Collectors.toList()));
 		List<Attraction> nearbyAttractions = new ArrayList<>();
-		for (Attraction attraction : gpsUtil.getAttractions()) {
-			if (rewardsService.isWithinAttractionProximity(attraction, visitedLocation.location)) {
-				nearbyAttractions.add(attraction);
+
+		for (int i = 0; i < 5; i++) {
+			for (Attraction a : allAttractions) {
+				double distance = rewardsService.getDistance(a, visitedLocation.location);
+				if (distance == Collections.min(allDistances)) {
+					nearbyAttractions.add(a);
+					allDistances.remove(distance);
+					allAttractions.remove(a);
+					break;
+				} else {
+					continue;
+				}
 			}
 		}
 		return nearbyAttractions;
+	}
+
+	public GetNearbyAttractionsDto getNearByAttractionsDto(List<Attraction> allAttractions, String userName,
+			VisitedLocation visitedLocation) {
+		List<NearbyAttractionDto> nearByAttractionDtos = new ArrayList<>();
+		List<CompletableFuture<Integer>> futures = new ArrayList<>();
+		for (Attraction a : allAttractions) {
+			futures.add(CompletableFuture
+					.supplyAsync(() -> rewardsService.getRewardPoints(a, getUser(userName)), rewardsService.getPool())
+					.thenApplyAsync(points -> {
+						nearByAttractionDtos.add(new NearbyAttractionDto(a.attractionName,
+								rewardsService.getDistance(a, visitedLocation.location), points, a.latitude,
+								a.longitude));
+						allAttractions.remove(a);
+						return points;
+					}, rewardsService.getPool()));
+		}
+		CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()])).join();
+		return new GetNearbyAttractionsDto(visitedLocation.location, nearByAttractionDtos);
+	}
+
+	public Map<String, LocationDto> getEveryUserMostRecentLocation() {
+		Map<String, LocationDto> maps = new HashMap<>();
+		List<User> allUsers = getAllUsers();
+		for (User u : allUsers) {
+			maps.put(u.getUserId().toString(), new LocationDto(getUserLocation(u).location));
+		}
+
+		return maps;
+
 	}
 
 	private void addShutDownHook() {
@@ -211,4 +223,13 @@ public class TourGuideService {
 		return Date.from(localDateTime.toInstant(ZoneOffset.UTC));
 	}
 
+	public List<Attraction> oldGetNearByAttractions(VisitedLocation visitedLocation) {
+		List<Attraction> nearbyAttractions = new ArrayList<>();
+		for (Attraction attraction : gpsUtil.getAttractions()) {
+			if (rewardsService.isWithinAttractionProximity(attraction, visitedLocation.location)) {
+				nearbyAttractions.add(attraction);
+			}
+		}
+		return nearbyAttractions;
+	}
 }

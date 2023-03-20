@@ -24,9 +24,9 @@ import gpsUtil.GpsUtil;
 import gpsUtil.location.Attraction;
 import gpsUtil.location.Location;
 import gpsUtil.location.VisitedLocation;
-import tourGuide.dto.GetNearbyAttractionsDto;
+import tourGuide.dto.AttractionDto;
 import tourGuide.dto.LocationDto;
-import tourGuide.dto.NearbyAttractionDto;
+import tourGuide.dto.NearbyAttractionsDto;
 import tourGuide.helper.InternalTestHelper;
 import tourGuide.tracker.Tracker;
 import tourGuide.user.User;
@@ -82,10 +82,6 @@ public class TourGuideService {
 		}
 	}
 
-	private void updateRewards(User user) {
-		this.rewardsService.calculateRewards(user).join();
-	}
-
 	public List<Provider> getTripDeals(User user) {
 		int cumulatativeRewardPoints = user.getUserRewards().stream().mapToInt(i -> i.getRewardPoints()).sum();
 
@@ -115,18 +111,23 @@ public class TourGuideService {
 		return CompletableFuture.allOf(completableFutures.toArray(new CompletableFuture[completableFutures.size()]));
 	}
 
-	public List<Attraction> getNearByAttractions(VisitedLocation visitedLocation) {
+	public NearbyAttractionsDto getNearbyAttractions(VisitedLocation visitedLocation, User user) {
 		List<Attraction> allAttractions = new ArrayList<>(gpsUtil.getAttractions());
 		List<Double> allDistances = new ArrayList<>(allAttractions.stream()
 				.map(a -> rewardsService.getDistance(a, visitedLocation.location))
 				.collect(Collectors.toList()));
-		List<Attraction> nearbyAttractions = new ArrayList<>();
-
+		List<AttractionDto> attractionDtos = new ArrayList<>();
+		List<CompletableFuture<Void>> futures = new ArrayList<>();
 		for (int i = 0; i < 5; i++) {
 			for (Attraction a : allAttractions) {
 				double distance = rewardsService.getDistance(a, visitedLocation.location);
 				if (distance == Collections.min(allDistances)) {
-					nearbyAttractions.add(a);
+					futures.add(CompletableFuture.supplyAsync(() -> {
+						attractionDtos.add(new AttractionDto(a.attractionName,
+								rewardsService.getDistance(a, visitedLocation.location),
+								rewardsService.getRewardPoints(a, user), a.latitude, a.longitude));
+						return null;
+					}, rewardsService.getPool()));
 					allDistances.remove(distance);
 					allAttractions.remove(a);
 					break;
@@ -135,26 +136,8 @@ public class TourGuideService {
 				}
 			}
 		}
-		return nearbyAttractions;
-	}
-
-	public GetNearbyAttractionsDto getNearByAttractionsDto(List<Attraction> allAttractions, String userName,
-			VisitedLocation visitedLocation) {
-		List<NearbyAttractionDto> nearByAttractionDtos = new ArrayList<>();
-		List<CompletableFuture<Integer>> futures = new ArrayList<>();
-		for (Attraction a : allAttractions) {
-			futures.add(CompletableFuture
-					.supplyAsync(() -> rewardsService.getRewardPoints(a, getUser(userName)), rewardsService.getPool())
-					.thenApplyAsync(points -> {
-						nearByAttractionDtos.add(new NearbyAttractionDto(a.attractionName,
-								rewardsService.getDistance(a, visitedLocation.location), points, a.latitude,
-								a.longitude));
-						allAttractions.remove(a);
-						return points;
-					}, rewardsService.getPool()));
-		}
 		CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()])).join();
-		return new GetNearbyAttractionsDto(visitedLocation.location, nearByAttractionDtos);
+		return new NearbyAttractionsDto(visitedLocation.location, attractionDtos);
 	}
 
 	public Map<String, LocationDto> getEveryUserMostRecentLocation() {
@@ -163,9 +146,7 @@ public class TourGuideService {
 		for (User u : allUsers) {
 			maps.put(u.getUserId().toString(), new LocationDto(getUserLocation(u).location));
 		}
-
 		return maps;
-
 	}
 
 	private void addShutDownHook() {
@@ -221,15 +202,5 @@ public class TourGuideService {
 	private Date getRandomTime() {
 		LocalDateTime localDateTime = LocalDateTime.now().minusDays(new Random().nextInt(30));
 		return Date.from(localDateTime.toInstant(ZoneOffset.UTC));
-	}
-
-	public List<Attraction> oldGetNearByAttractions(VisitedLocation visitedLocation) {
-		List<Attraction> nearbyAttractions = new ArrayList<>();
-		for (Attraction attraction : gpsUtil.getAttractions()) {
-			if (rewardsService.isWithinAttractionProximity(attraction, visitedLocation.location)) {
-				nearbyAttractions.add(attraction);
-			}
-		}
-		return nearbyAttractions;
 	}
 }

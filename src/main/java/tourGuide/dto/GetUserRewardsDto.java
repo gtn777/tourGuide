@@ -3,8 +3,10 @@ package tourGuide.dto;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import lombok.Data;
 import tourGuide.user.UserReward;
 
+@Data
 public class GetUserRewardsDto {
 
 	public GetUserRewardsDto(List<UserReward> userRewards) {
@@ -15,11 +17,4 @@ public class GetUserRewardsDto {
 
 	List<String> rewards;
 
-	public List<String> getRewards() {
-		return rewards;
-	}
-
-	public void setRewards(List<String> rewards) {
-		this.rewards = rewards;
-	}
 }

@@ -9,9 +9,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import gpsUtil.GpsUtil;
-import gpsUtil.location.Attraction;
 import gpsUtil.location.VisitedLocation;
 import rewardCentral.RewardCentral;
+import tourGuide.dto.NearbyAttractionsDto;
 import tourGuide.helper.InternalTestHelper;
 import tourGuide.service.RewardsService;
 import tourGuide.service.TourGuideService;
@@ -20,7 +20,6 @@ import tripPricer.Provider;
 
 public class TestTourGuideService {
 
-//	@Disabled
 	@Test
 	public void getUserLocation() {
 		GpsUtil gpsUtil = new GpsUtil();
@@ -34,7 +33,6 @@ public class TestTourGuideService {
 		assertTrue(visitedLocation.userId.equals(user.getUserId()));
 	}
 
-//	@Disabled
 	@Test
 	public void addUser() {
 		GpsUtil gpsUtil = new GpsUtil();
@@ -57,7 +55,6 @@ public class TestTourGuideService {
 		assertEquals(user2, retrivedUser2);
 	}
 
-//	@Disabled
 	@Test
 	public void getAllUsers() {
 		GpsUtil gpsUtil = new GpsUtil();
@@ -79,7 +76,6 @@ public class TestTourGuideService {
 		assertTrue(allUsers.contains(user2));
 	}
 
-//	@Disabled
 	@Test
 	public void trackUser() {
 		GpsUtil gpsUtil = new GpsUtil();
@@ -95,7 +91,6 @@ public class TestTourGuideService {
 		assertEquals(user.getUserId(), visitedLocation.userId);
 	}
 
-//	@Disabled // Not yet implemented
 	@Test
 	public void getNearbyAttractions() {
 		GpsUtil gpsUtil = new GpsUtil();
@@ -106,14 +101,13 @@ public class TestTourGuideService {
 		User user = new User(UUID.randomUUID(), "jon", "000", "jon@tourGuide.com");
 		VisitedLocation visitedLocation = tourGuideService.trackUserLocation(user).join();
 
-		List<Attraction> attractions = tourGuideService.getNearByAttractions(visitedLocation);
+		NearbyAttractionsDto dto = tourGuideService.getNearbyAttractions(visitedLocation, user);
 
 		tourGuideService.tracker.stopTracking();
 
-		assertEquals(5, attractions.size());
+		assertEquals(5, dto.getNearbyAttractionDtos().size());
 	}
 
-//	@Disabled
 	@Test
 	public void getTripDeals() {
 		GpsUtil gpsUtil = new GpsUtil();
@@ -121,22 +115,38 @@ public class TestTourGuideService {
 		InternalTestHelper.setInternalUserNumber(0);
 		TourGuideService tourGuideService = new TourGuideService(gpsUtil, rewardsService);
 		tourGuideService.tracker.stopTracking();
-		
-		User user = new User(UUID.randomUUID(), "jon", "000", "jon@tourGuide.com");
-//		user.getUserPreferences().setNumberOfChildren(0);
-//		user.getUserPreferences().setNumberOfAdults(0);
-		tourGuideService.trackUserLocation(user).join();
-//		user.getUserPreferences().setTripDuration(0);
 
-		System.out.println("-------------------------------------");
-		
+		User user = new User(UUID.randomUUID(), "jon", "000", "jon@tourGuide.com");
 		List<Provider> providers = tourGuideService.getTripDeals(user);
-		System.out.println("-------------------------------------");
-		for(Provider p: providers) {
+
+		for (Provider p : providers) {
 			System.out.println(p.name);
 			System.out.println(p.price);
 		}
 		assertEquals(5, providers.size());
 	}
 
+	@Test
+	public void getTripDeals_accordingUserPreferences() {
+		GpsUtil gpsUtil = new GpsUtil();
+		RewardsService rewardsService = new RewardsService(gpsUtil, new RewardCentral());
+		InternalTestHelper.setInternalUserNumber(0);
+		TourGuideService tourGuideService = new TourGuideService(gpsUtil, rewardsService);
+		tourGuideService.tracker.stopTracking();
+
+		User user1 = new User(UUID.randomUUID(), "jon1", "001", "jon1@tourGuide.com");
+		user1.getUserPreferences().setNumberOfAdults(0);
+		user1.getUserPreferences().setNumberOfChildren(0);
+		User user2 = new User(UUID.randomUUID(), "jon2", "002", "jon2@tourGuide.com");
+		user2.getUserPreferences().setNumberOfAdults(2);
+		User user3 = new User(UUID.randomUUID(), "jon3", "003", "jon3@tourGuide.com");
+		user3.getUserPreferences().setNumberOfChildren(2);
+
+		List<Provider> providers1 = tourGuideService.getTripDeals(user1);
+		List<Provider> providers2 = tourGuideService.getTripDeals(user2);
+		List<Provider> providers3 = tourGuideService.getTripDeals(user3);
+
+		assertTrue(providers2.get(0).price > providers1.get(0).price);
+		assertTrue(providers3.get(0).price > providers1.get(0).price);
+	}
 }

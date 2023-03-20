@@ -22,7 +22,6 @@ import tourGuide.user.UserReward;
 
 public class TestRewardsService {
 
-//	@Disabled
 	@Test
 	public void userGetRewards() {
 		GpsUtil gpsUtil = new GpsUtil();
@@ -40,7 +39,6 @@ public class TestRewardsService {
 		assertTrue(userRewards.size() == 1);
 	}
 
-//	@Disabled
 	@Test
 	public void isWithinAttractionProximity() {
 		GpsUtil gpsUtil = new GpsUtil();
@@ -49,7 +47,6 @@ public class TestRewardsService {
 		assertTrue(rewardsService.isWithinAttractionProximity(attraction, attraction));
 	}
 
-//	@Disabled // Needs fixed - can throw ConcurrentModificationException
 	@Test
 	public void nearAllAttractions() {
 		GpsUtil gpsUtil = new GpsUtil();
@@ -68,8 +65,6 @@ public class TestRewardsService {
 		List<UserReward> userRewards = tourGuideService.getUserRewards(tourGuideService.getAllUsers().get(0));
 		assertEquals(gpsUtil.getAttractions().size(), userRewards.size());
 
-		System.out.println(
-				"------ calculateRewards 1 user, 26 attractions: " + ((double) stopWatch.getTime() / 1000) + "sec");
 	}
 
 }
